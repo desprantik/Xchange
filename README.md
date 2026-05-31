@@ -30,9 +30,16 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
+## Deploy to Vercel
+
+1. Push this repo to GitHub and import it in [Vercel](https://vercel.com/).
+2. In **Project Settings → Environment Variables**, add:
+   - `FREECURRENCY_API_KEY` = your key from [FreecurrencyAPI](https://freecurrencyapi.com/)
+3. Deploy. The `/api/currencies` and `/api/rates` serverless functions proxy requests so your key never ships to the browser.
+
 ## How it works
 
-The frontend calls a local `/api/rates` proxy (configured in `vite.config.ts`) so your API key stays server-side and is never exposed in the browser bundle. Rates are fetched on load, when you change the source currency, or when you tap the refresh icon.
+The frontend calls `/api/rates` and `/api/currencies`. Locally, Vite proxies those routes; on Vercel, they run as serverless functions in the `api/` folder. Your API key stays server-side and is never exposed in the browser bundle. Rates are fetched on load, when you change the source currency, or when you tap the refresh icon.
 
 ## Tech stack
 

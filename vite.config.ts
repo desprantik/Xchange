@@ -3,29 +3,21 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import https from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { proxyFreecurrency } from "./lib/freecurrency";
 
-const API_ROUTES: Record<string, string> = {
-  "/api/rates": "/v1/latest",
-  "/api/currencies": "/v1/currencies",
-};
-
-function apiProxyPlugin(apiKey: string, allowInsecureTls: boolean): Plugin {
+function apiProxyPlugin(allowInsecureTls: boolean): Plugin {
   return {
     name: "freecurrencyapi-proxy",
     configureServer(server) {
-      server.middlewares.use(createProxyHandler(apiKey, allowInsecureTls));
+      server.middlewares.use(createProxyHandler(allowInsecureTls));
     },
     configurePreviewServer(server) {
-      server.middlewares.use(createProxyHandler(apiKey, allowInsecureTls));
+      server.middlewares.use(createProxyHandler(allowInsecureTls));
     },
   };
 }
 
-function httpsGet(
-  url: string,
-  apiKey: string,
-  allowInsecureTls: boolean,
-): Promise<{ status: number; body: string }> {
+function httpsGet(url: string, apiKey: string, allowInsecureTls: boolean): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const request = https.get(
       url,
@@ -43,66 +35,71 @@ function httpsGet(
         });
       },
     );
-
     request.on("error", reject);
   });
 }
 
-function createProxyHandler(apiKey: string, allowInsecureTls: boolean) {
-  return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-    const route = Object.keys(API_ROUTES).find((prefix) =>
-      req.url?.startsWith(prefix),
-    );
+async function proxyWithNodeTls(
+  path: string,
+  searchParams: URLSearchParams | undefined,
+  allowInsecureTls: boolean,
+): Promise<{ status: number; body: string }> {
+  const apiKey = process.env.FREECURRENCY_API_KEY;
+  if (!apiKey) {
+    return proxyFreecurrency(path, searchParams);
+  }
 
-    if (!route) {
+  try {
+    const url = new URL(`https://api.freecurrencyapi.com/v1${path}`);
+    searchParams?.forEach((value, key) => url.searchParams.set(key, value));
+    return await httpsGet(url.toString(), apiKey, allowInsecureTls);
+  } catch {
+    return proxyFreecurrency(path, searchParams);
+  }
+}
+
+function createProxyHandler(allowInsecureTls: boolean) {
+  return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    if (!req.url?.startsWith("/api/")) {
       next();
       return;
     }
 
-    if (!apiKey) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: "FREECURRENCY_API_KEY is not configured. Copy .env.example to .env.",
-        }),
-      );
-      return;
-    }
+    const incoming = new URL(req.url, "http://localhost");
 
-    const incoming = new URL(req.url!, "http://localhost");
-    const apiPath = API_ROUTES[route];
-    const apiUrl = new URL(`https://api.freecurrencyapi.com${apiPath}`);
+    try {
+      let result: { status: number; body: string };
 
-    if (route === "/api/rates") {
-      const baseCurrency = incoming.searchParams.get("base_currency");
-      const currencies = incoming.searchParams.get("currencies");
+      if (incoming.pathname === "/api/currencies") {
+        result = await proxyWithNodeTls("/currencies", undefined, allowInsecureTls);
+      } else if (incoming.pathname === "/api/rates") {
+        const baseCurrency = incoming.searchParams.get("base_currency");
+        const currencies = incoming.searchParams.get("currencies");
 
-      if (!baseCurrency || !currencies) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            error: "Missing required query params: base_currency, currencies",
-          }),
-        );
+        if (!baseCurrency || !currencies) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              error: "Missing required query params: base_currency, currencies",
+            }),
+          );
+          return;
+        }
+
+        const params = new URLSearchParams({
+          base_currency: baseCurrency,
+          currencies,
+        });
+        result = await proxyWithNodeTls("/latest", params, allowInsecureTls);
+      } else {
+        next();
         return;
       }
 
-      apiUrl.searchParams.set("base_currency", baseCurrency);
-      apiUrl.searchParams.set("currencies", currencies);
-    }
-
-    try {
-      const { status, body } = await httpsGet(
-        apiUrl.toString(),
-        apiKey,
-        allowInsecureTls,
-      );
-
-      res.statusCode = status;
+      res.statusCode = result.status;
       res.setHeader("Content-Type", "application/json");
-      res.end(body);
+      res.end(result.body);
     } catch {
       res.statusCode = 502;
       res.setHeader("Content-Type", "application/json");
@@ -112,12 +109,8 @@ function createProxyHandler(apiKey: string, allowInsecureTls: boolean) {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [
-      react(),
-      tailwindcss(),
-      apiProxyPlugin(env.FREECURRENCY_API_KEY ?? "", mode !== "production"),
-    ],
+    plugins: [react(), tailwindcss(), apiProxyPlugin(mode !== "production")],
   };
 });
