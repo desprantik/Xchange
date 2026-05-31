@@ -1,10 +1,14 @@
-import type { VercelResponse } from "@vercel/node";
-
 const API_BASE = "https://api.freecurrencyapi.com/v1";
 
 type ProxyResult = {
   status: number;
   body: string;
+};
+
+type ApiResponse = {
+  status(code: number): ApiResponse;
+  setHeader(name: string, value: string): void;
+  send(body: string): void;
 };
 
 export async function proxyFreecurrency(
@@ -45,7 +49,7 @@ export async function proxyFreecurrency(
   }
 }
 
-export function sendJson(res: VercelResponse, result: ProxyResult) {
+export function sendJson(res: ApiResponse, result: ProxyResult) {
   res.status(result.status);
   res.setHeader("Content-Type", "application/json");
   res.send(result.body);

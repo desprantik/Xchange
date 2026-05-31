@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import https from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { proxyFreecurrency } from "./lib/freecurrency";
+import { proxyFreecurrency } from "./api/lib/freecurrency.js";
 
 function apiProxyPlugin(allowInsecureTls: boolean): Plugin {
   return {
